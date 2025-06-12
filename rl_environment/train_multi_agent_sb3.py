@@ -6,82 +6,89 @@ from typing import Dict, Any, Tuple, List, Literal
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecMonitor
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, BaseCallback
+from stable_baselines3.common.callbacks import (
+    EvalCallback,
+    CheckpointCallback,
+    BaseCallback,
+)
 import os
 from datetime import datetime
 import matplotlib.pyplot as plt
 
+
 class TrainingMetricsCallback(BaseCallback):
     """Custom callback to log training metrics and create visualizations."""
-    
+
     def __init__(self, verbose=0):
         super().__init__(verbose)
         self.episode_rewards = []
         self.episode_lengths = []
         self.coverage_rewards = []
-        
+
     def _on_step(self) -> bool:
         # Log episode metrics when episode ends
-        if 'episode' in self.locals.get('infos', [{}])[0]:
-            info = self.locals['infos'][0]['episode']
-            self.episode_rewards.append(info['r'])
-            self.episode_lengths.append(info['l'])
-            
+        if "episode" in self.locals.get("infos", [{}])[0]:
+            info = self.locals["infos"][0]["episode"]
+            self.episode_rewards.append(info["r"])
+            self.episode_lengths.append(info["l"])
+
         return True
-    
+
     def _on_training_end(self) -> None:
         # Save training metrics
         if self.episode_rewards:
             self.save_metrics()
-    
+
     def save_metrics(self):
         """Save training metrics and create plots."""
-        output_dir = getattr(self.model, 'output_dir', 'training_output')
-        
+        output_dir = getattr(self.model, "output_dir", "training_output")
+
         # Save raw data
         metrics = {
-            'episode_rewards': [float(r) for r in self.episode_rewards],
-            'episode_lengths': [int(l) for l in self.episode_lengths],
+            "episode_rewards": [float(r) for r in self.episode_rewards],
+            "episode_lengths": [int(l) for l in self.episode_lengths],
         }
-        
-        with open(os.path.join(output_dir, 'training_metrics.json'), 'w') as f:
+
+        with open(os.path.join(output_dir, "training_metrics.json"), "w") as f:
             json.dump(metrics, f, indent=2)
-        
+
         # Create plots
         if len(self.episode_rewards) > 0:
             self.plot_training_progress(output_dir)
-    
+
     def plot_training_progress(self, output_dir):
         """Create training progress plots."""
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
-        
+
         # Episode rewards
         ax1.plot(self.episode_rewards)
-        ax1.set_title('Episode Rewards Over Time')
-        ax1.set_xlabel('Episode')
-        ax1.set_ylabel('Reward')
+        ax1.set_title("Episode Rewards Over Time")
+        ax1.set_xlabel("Episode")
+        ax1.set_ylabel("Reward")
         ax1.grid(True)
-        
+
         # Episode lengths
         ax2.plot(self.episode_lengths)
-        ax2.set_title('Episode Lengths Over Time')
-        ax2.set_xlabel('Episode')
-        ax2.set_ylabel('Steps')
+        ax2.set_title("Episode Lengths Over Time")
+        ax2.set_xlabel("Episode")
+        ax2.set_ylabel("Steps")
         ax2.grid(True)
-        
+
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, 'training_progress.png'))
+        plt.savefig(os.path.join(output_dir, "training_progress.png"))
         plt.close()
+
 
 class MultiAgentEdgeEnv(gym.Env):
     """
     Enhanced Multi-Agent Environment for Edge Service Placement.
-    
+
     Features:
     - Configurable state sharing modes
     - Multiple observation strategies
     - Detailed metrics and logging
     """
+
     metadata = {"render_modes": ["human", "rgb_array"], "render_fps": 4}
 
     def __init__(
@@ -102,7 +109,7 @@ class MultiAgentEdgeEnv(gym.Env):
         self.observation_mode = observation_mode
         self.state_sharing = state_sharing
         self.reward_sharing = reward_sharing
-        
+
         self.G = graph
         self.service_chains = service_chains
         self.microservices = microservices
@@ -116,16 +123,14 @@ class MultiAgentEdgeEnv(gym.Env):
 
         # Performance metrics
         self.episode_metrics = {
-            'total_deployments': 0,
-            'successful_deployments': 0,
-            'coverage_achieved': 0,
-            'resource_utilization': 0.0,
+            "total_deployments": 0,
+            "successful_deployments": 0,
+            "coverage_achieved": 0,
+            "resource_utilization": 0.0,
         }
 
         # map micro-service names → indices
-        self.ms_name_to_idx = {
-            ms["name"]: idx for idx, ms in enumerate(microservices)
-        }
+        self.ms_name_to_idx = {ms["name"]: idx for idx, ms in enumerate(microservices)}
 
         # service chains using indices (faster later on)
         self.service_chains_idx: List[Dict[str, Any]] = []
@@ -133,10 +138,7 @@ class MultiAgentEdgeEnv(gym.Env):
             self.service_chains_idx.append(
                 {
                     "name": chain["name"],
-                    "microservices": [
-                        self.ms_name_to_idx[ms_name]
-                        for ms_name in chain["microservices"]
-                    ],
+                    "microservices": [self.ms_name_to_idx[ms_name] for ms_name in chain["microservices"]],
                     "latency_requirement_ms": chain["latency_requirement_ms"],
                 }
             )
@@ -175,28 +177,34 @@ class MultiAgentEdgeEnv(gym.Env):
     def _get_centralized_obs_dim(self) -> int:
         """Get observation dimension for centralized mode."""
         # All microservices on all edges + resources + latencies + chain requirements
-        return (self.E * self.S +  # microservice placement matrix
-                self.E * 3 +      # resources for all edges  
-                self.E * self.B + # latencies from all edges to all base stations
-                len(self.service_chains_idx))  # chain requirements
+        return (
+            self.E * self.S  # microservice placement matrix
+            + self.E * 3  # resources for all edges
+            + self.E * self.B  # latencies from all edges to all base stations
+            + len(self.service_chains_idx)
+        )  # chain requirements
 
     def _get_local_obs_dim(self) -> int:
         """Get observation dimension for local mode."""
         # Only local edge information for each edge
-        return (self.S +  # local microservices
-                3 +       # local resources
-                self.B +  # local latencies
-                len(self.service_chains_idx))  # chain requirements
+        return (
+            self.S  # local microservices
+            + 3  # local resources
+            + self.B  # local latencies
+            + len(self.service_chains_idx)
+        )  # chain requirements
 
     def _get_hybrid_obs_dim(self) -> int:
         """Get observation dimension for hybrid mode."""
         # Local info + global coverage info
-        return (self.S +  # local microservices
-                3 +       # local resources
-                self.B +  # local latencies
-                len(self.service_chains_idx) +  # chain requirements
-                self.B +  # global coverage per base station
-                self.E)   # global utilization per edge
+        return (
+            self.S  # local microservices
+            + 3  # local resources
+            + self.B  # local latencies
+            + len(self.service_chains_idx)  # chain requirements
+            + self.B  # global coverage per base station
+            + self.E
+        )  # global utilization per edge
 
     def _compute_cost_matrix(self):
         """Pre-compute (dummy) placement costs for each (service, edge)."""
@@ -215,31 +223,35 @@ class MultiAgentEdgeEnv(gym.Env):
         """Get centralized observation (full global state)."""
         # Flatten microservice placement matrix
         ms_placement = self.server_microservices.flatten()
-        
+
         # All edge resources
         resources = []
         for i in range(self.E):
-            resources.extend([
-                self.microservices[i]["cpu"],
-                self.microservices[i]["memory_mb"],
-                1.0 if self.microservices[i]["gpu"] else 0.0,
-            ])
-        
+            resources.extend(
+                [
+                    self.microservices[i]["cpu"],
+                    self.microservices[i]["memory_mb"],
+                    1.0 if self.microservices[i]["gpu"] else 0.0,
+                ]
+            )
+
         # All edge latencies
         latencies = []
         for i in range(self.E):
             for bs in self.base_stations:
                 latencies.append(self._get_shortest_path_length(self.edge_sites[i], bs))
-        
+
         # Chain requirements
         chain_reqs = [c["latency_requirement_ms"] for c in self.service_chains_idx]
-        
-        return np.concatenate([
-            ms_placement.astype(np.float32),
-            np.array(resources, dtype=np.float32),
-            np.array(latencies, dtype=np.float32),
-            np.array(chain_reqs, dtype=np.float32)
-        ])
+
+        return np.concatenate(
+            [
+                ms_placement.astype(np.float32),
+                np.array(resources, dtype=np.float32),
+                np.array(latencies, dtype=np.float32),
+                np.array(chain_reqs, dtype=np.float32),
+            ]
+        )
 
     def _get_local_observation(self) -> np.ndarray:
         """Get local observation (only first edge's view for simplicity)."""
@@ -250,16 +262,12 @@ class MultiAgentEdgeEnv(gym.Env):
         """Get hybrid observation (local + global context)."""
         # Local observation for first edge
         local_obs = self._get_agent_observation(0)
-        
+
         # Global context
         coverage = self._service_latency()
         utilization = np.sum(self.server_microservices, axis=1) / self.S  # utilization per edge
-        
-        return np.concatenate([
-            local_obs,
-            coverage.astype(np.float32),
-            utilization.astype(np.float32)
-        ])
+
+        return np.concatenate([local_obs, coverage.astype(np.float32), utilization.astype(np.float32)])
 
     def _get_agent_observation(self, edge_idx: int) -> np.ndarray:
         """Get observation for a specific edge agent."""
@@ -278,13 +286,7 @@ class MultiAgentEdgeEnv(gym.Env):
 
         # latency from this edge site to every base station
         latencies = np.array(
-            [
-                self._get_shortest_path_length(
-                    self.edge_sites[edge_idx],
-                    bs
-                )
-                for bs in self.base_stations
-            ],
+            [self._get_shortest_path_length(self.edge_sites[edge_idx], bs) for bs in self.base_stations],
             dtype=np.float32,
         )
 
@@ -293,19 +295,12 @@ class MultiAgentEdgeEnv(gym.Env):
             dtype=np.float32,
         )
 
-        return np.concatenate(
-            [current_ms.astype(np.float32), avail, latencies, chain_requirements]
-        )
+        return np.concatenate([current_ms.astype(np.float32), avail, latencies, chain_requirements])
 
     def _get_shortest_path_length(self, source: str, target: str) -> float:
         """Get shortest path length between two nodes, returning inf if no path exists."""
         try:
-            return nx.shortest_path_length(
-                self.G,
-                source=source,
-                target=target,
-                weight="latency"
-            )
+            return nx.shortest_path_length(self.G, source=source, target=target, weight="latency")
         except nx.NetworkXNoPath:
             return float("inf")
 
@@ -314,18 +309,13 @@ class MultiAgentEdgeEnv(gym.Env):
         coverage = np.zeros(self.B, dtype=int)
 
         for chain in self.service_chains_idx:
-            sites_per_ms = [
-                np.where(self.server_microservices[:, ms] > 0)[0]
-                for ms in chain["microservices"]
-            ]
+            sites_per_ms = [np.where(self.server_microservices[:, ms] > 0)[0] for ms in chain["microservices"]]
             if not all(len(s) > 0 for s in sites_per_ms):
                 continue
 
             for b_idx, bs in enumerate(self.base_stations):
                 total_lat = 0.0
-                for ms_idx, slist in zip(
-                    chain["microservices"], sites_per_ms
-                ):
+                for ms_idx, slist in zip(chain["microservices"], sites_per_ms):
                     edge_site = self.edge_sites[slist[0]]
                     try:
                         total_lat += nx.shortest_path_length(
@@ -345,32 +335,32 @@ class MultiAgentEdgeEnv(gym.Env):
         super().reset(seed=seed)
         self.server_microservices.fill(0)
         self.step_count = 0
-        
+
         # Reset episode metrics
         self.episode_metrics = {
-            'total_deployments': 0,
-            'successful_deployments': 0,
-            'coverage_achieved': 0,
-            'resource_utilization': 0.0,
+            "total_deployments": 0,
+            "successful_deployments": 0,
+            "coverage_achieved": 0,
+            "resource_utilization": 0.0,
         }
-        
+
         return self._get_observation(), {}
 
     def step(self, action):
         self.step_count += 1
-        
+
         # Reset episode metrics
-        self.episode_metrics['total_deployments'] = 0
-        self.episode_metrics['successful_deployments'] = 0
+        self.episode_metrics["total_deployments"] = 0
+        self.episode_metrics["successful_deployments"] = 0
 
         # Parse actions for multiple edges
         actions = action.reshape(self.E, 2)
-        
+
         individual_rewards = np.zeros(self.E)
-        
+
         for edge_idx, (act_type, ms_idx) in enumerate(actions):
-            self.episode_metrics['total_deployments'] += 1
-            
+            self.episode_metrics["total_deployments"] += 1
+
             if not (0 <= ms_idx < self.S):
                 individual_rewards[edge_idx] -= 2.0  # Penalty for invalid action
                 continue
@@ -379,26 +369,26 @@ class MultiAgentEdgeEnv(gym.Env):
                 if self.server_microservices[edge_idx, ms_idx] == 0:
                     self.server_microservices[edge_idx, ms_idx] = 1
                     individual_rewards[edge_idx] += 1.0
-                    self.episode_metrics['successful_deployments'] += 1
+                    self.episode_metrics["successful_deployments"] += 1
                 else:
                     individual_rewards[edge_idx] -= 1.0  # Already deployed
             elif act_type == 2:  # evict
                 if self.server_microservices[edge_idx, ms_idx] == 1:
                     self.server_microservices[edge_idx, ms_idx] = 0
                     individual_rewards[edge_idx] += 0.5
-                    self.episode_metrics['successful_deployments'] += 1
+                    self.episode_metrics["successful_deployments"] += 1
                 else:
                     individual_rewards[edge_idx] -= 0.5  # Nothing to evict
 
         # Compute shared coverage reward
         coverage = self._service_latency()
         coverage_reward = 0.1 * coverage.sum()
-        self.episode_metrics['coverage_achieved'] = coverage.sum()
+        self.episode_metrics["coverage_achieved"] = coverage.sum()
 
         # Compute resource utilization
         total_utilization = np.sum(self.server_microservices) / (self.E * self.S)
-        self.episode_metrics['resource_utilization'] = total_utilization
-        
+        self.episode_metrics["resource_utilization"] = total_utilization
+
         # Efficiency bonus (reward for achieving coverage with fewer resources)
         efficiency_bonus = 0.0
         if coverage.sum() > 0:
@@ -419,19 +409,20 @@ class MultiAgentEdgeEnv(gym.Env):
 
         terminated = False
         truncated = self.step_count >= self.max_steps
-        
+
         # Enhanced info dictionary
         info = {
-            'episode_metrics': self.episode_metrics.copy(),
-            'coverage_per_bs': coverage.tolist(),
-            'total_coverage': coverage.sum(),
-            'resource_utilization': total_utilization,
-            'efficiency_score': efficiency_bonus,
-            'individual_rewards': individual_rewards.tolist(),
-            'shared_reward': coverage_reward + efficiency_bonus,
+            "episode_metrics": self.episode_metrics.copy(),
+            "coverage_per_bs": coverage.tolist(),
+            "total_coverage": coverage.sum(),
+            "resource_utilization": total_utilization,
+            "efficiency_score": efficiency_bonus,
+            "individual_rewards": individual_rewards.tolist(),
+            "shared_reward": coverage_reward + efficiency_bonus,
         }
 
         return self._get_observation(), reward, terminated, truncated, info
+
 
 def build_demo_graph():
     G = nx.Graph()
@@ -448,15 +439,17 @@ def build_demo_graph():
     G.add_edge("e2", "e3", latency=0.05)
     return G, base_stations, edge_sites
 
+
 def load_services(path: str):
     with open(path, "r") as f:
         data = json.load(f)
     return data["microservices"], data["service_chains"]
 
+
 def main():
     print("=== Enhanced Multi-Agent Edge Service Placement Training ===")
     print("Using Stable Baselines3 with configurable state sharing")
-    
+
     # Create output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir = f"training_output_sb3_enhanced_{timestamp}"
@@ -466,7 +459,7 @@ def main():
     # Build environment
     G, BS, ES = build_demo_graph()
     microservices, chains = load_services("data/services.json")
-    
+
     print(f"Environment setup:")
     print(f"  - Base stations: {len(BS)}")
     print(f"  - Edge sites: {len(ES)}")
@@ -475,23 +468,15 @@ def main():
 
     # Environment configuration
     env_config = {
-        'observation_mode': 'hybrid',  # centralized, local, hybrid
-        'state_sharing': 'partial',    # full, partial, none
-        'reward_sharing': 0.7,         # 0.0 = individual, 1.0 = fully shared
+        "observation_mode": "hybrid",  # centralized, local, hybrid
+        "state_sharing": "partial",  # full, partial, none
+        "reward_sharing": 0.7,  # 0.0 = individual, 1.0 = fully shared
     }
-    
+
     print(f"Environment configuration: {env_config}")
 
     def make_env():
-        env = MultiAgentEdgeEnv(
-            G, 
-            chains, 
-            microservices, 
-            ES, 
-            BS,
-            render_mode=None,
-            **env_config
-        )
+        env = MultiAgentEdgeEnv(G, chains, microservices, ES, BS, render_mode=None, **env_config)
         return env
 
     # Create vectorized environments
@@ -505,7 +490,7 @@ def main():
     # Create enhanced callbacks
     print("Setting up callbacks...")
     metrics_callback = TrainingMetricsCallback(verbose=1)
-    
+
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=os.path.join(output_dir, "best_model"),
@@ -513,13 +498,13 @@ def main():
         eval_freq=100,
         deterministic=True,
         render=False,
-        verbose=1
+        verbose=1,
     )
 
     checkpoint_callback = CheckpointCallback(
         save_freq=100,
         save_path=os.path.join(output_dir, "checkpoints"),
-        name_prefix="edge_placement_model"
+        name_prefix="edge_placement_model",
     )
 
     # Enhanced PPO configuration
@@ -536,14 +521,12 @@ def main():
         gae_lambda=0.95,
         clip_range=0.2,
         ent_coef=0.01,  # Encourage exploration
-        vf_coef=0.5,    # Value function coefficient
+        vf_coef=0.5,  # Value function coefficient
         max_grad_norm=0.5,  # Gradient clipping
         tensorboard_log=os.path.join(output_dir, "tensorboard"),
-        policy_kwargs={
-            "net_arch": [{"pi": [256, 256], "vf": [256, 256]}]  # Separate networks
-        }
+        policy_kwargs={"net_arch": [{"pi": [256, 256], "vf": [256, 256]}]},  # Separate networks
     )
-    
+
     # Store output directory in model for callbacks
     model.output_dir = output_dir
 
@@ -552,33 +535,37 @@ def main():
     total_timesteps = 10000
     for i in range(5):
         print(f"\n=== Training Iteration {i+1}/5 ===")
-        
+
         model.learn(
             total_timesteps=total_timesteps,
             callback=[eval_callback, checkpoint_callback, metrics_callback],
             reset_num_timesteps=False,
-            progress_bar=True
+            progress_bar=True,
         )
-        
+
         print(f"Completed iteration {i+1}/5")
-        
+
         # Save intermediate model with detailed name
-        model_path = os.path.join(output_dir, f"model_iter_{i+1}_{env_config['observation_mode']}_{env_config['state_sharing']}")
+        model_path = os.path.join(
+            output_dir,
+            f"model_iter_{i+1}_{env_config['observation_mode']}_{env_config['state_sharing']}",
+        )
         model.save(model_path)
         print(f"Model saved: {model_path}")
 
     # Save final model and configuration
     final_model_path = os.path.join(output_dir, "final_model")
     model.save(final_model_path)
-    
+
     # Save environment configuration
-    with open(os.path.join(output_dir, 'env_config.json'), 'w') as f:
+    with open(os.path.join(output_dir, "env_config.json"), "w") as f:
         json.dump(env_config, f, indent=2)
-    
+
     print(f"\n=== Training Complete ===")
     print(f"Final model saved: {final_model_path}")
     print(f"Configuration saved: {os.path.join(output_dir, 'env_config.json')}")
     print(f"Logs and metrics available in: {output_dir}")
 
+
 if __name__ == "__main__":
-    main() 
+    main()

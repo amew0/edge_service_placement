@@ -1,42 +1,26 @@
 import numpy as np
-import edge_sim_py as es # type: ignore
+import edge_sim_py as es  # type: ignore
 from gymnasium import spaces
-from edge_components import edge_components as ec # type: ignore
+from edge_components import edge_components as ec  # type: ignore
 import networkx as nx
 import matplotlib.pyplot as plt
 import random
+
 locations = [
-    {
-        "name": "Central Park, New York (South End)",
-        "lat": 40.7690,
-        "lon": -73.9817
-    }
-    ,
-    {
-        "name": "Columbus Circle, New York",
-        "lat": 40.7681,
-        "lon": -73.9819
-    }
-    ,
-    {
-        "name": "The Plaza Hotel, New York",
-        "lat": 40.7644,
-        "lon": -73.9747
-    }
-    ,
-    {   
-        "name": "Apple Store Fifth Avenue, New York",
-        "lat": 40.7637,
-        "lon": -73.9726
-    }
+    {"name": "Central Park, New York (South End)", "lat": 40.7690, "lon": -73.9817},
+    {"name": "Columbus Circle, New York", "lat": 40.7681, "lon": -73.9819},
+    {"name": "The Plaza Hotel, New York", "lat": 40.7644, "lon": -73.9747},
+    {"name": "Apple Store Fifth Avenue, New York", "lat": 40.7637, "lon": -73.9726},
 ]
+
+
 def create_network():
     # Edge Sites (E1-E4)
     edge_sites = [
         ec.CustomEdgeServer(model_name="E1", coordinates=(locations[0]["lat"], locations[0]["lon"])),
         ec.CustomEdgeServer(model_name="E2", coordinates=(locations[1]["lat"], locations[1]["lon"])),
         ec.CustomEdgeServer(model_name="E3", coordinates=(locations[2]["lat"], locations[2]["lon"])),
-        ec.CustomEdgeServer(model_name="E4", coordinates=(locations[3]["lat"], locations[3]["lon"]))
+        ec.CustomEdgeServer(model_name="E4", coordinates=(locations[3]["lat"], locations[3]["lon"])),
     ]
 
     # Base Stations (10 BS)
@@ -46,7 +30,7 @@ def create_network():
     drones = [es.User(obj_id=i) for i in range(20)]
     # UPFs
     upfs = [ec.NetworkFunction(name=f"UPF_{i}", function_type="UPF", function_id=i) for i in range(4)]
-    #print(len(upfs))
+    # print(len(upfs))
     for idx in range(len(base_stations)):
         upf_idx = random.randint(0, len(upfs) - 1)
         base_stations[idx].connect_to(upfs[upf_idx], latency=0.1, bandwidth=1000)
@@ -54,7 +38,6 @@ def create_network():
         edge_sites[idx].connect_to(upfs[idx], latency=0.2, bandwidth=5000)
 
     return edge_sites, base_stations, drones, upfs
-
 
 
 def visualize_topology(edge_sites, base_stations, drones, upfs):
@@ -79,7 +62,9 @@ def visualize_topology(edge_sites, base_stations, drones, upfs):
             if isinstance(target, ec.NetworkFunction):
                 print(f"Edge server {edge.model_name} connected to UPF {target.name}")
                 normal_edges.append((edge.model_name, target.name))
-                G.add_edge(edge.model_name, target.name, latency=connection["latency"], bandwidth=connection["bandwidth"])
+                G.add_edge(
+                    edge.model_name, target.name, latency=connection["latency"], bandwidth=connection["bandwidth"]
+                )
     for i in range(len(edge_sites)):
         for j in range(len(edge_sites) - i):
             if i != j:
@@ -106,13 +91,14 @@ def visualize_topology(edge_sites, base_stations, drones, upfs):
     node_colors = [get_node_color(G.nodes[node]["type"]) for node in G.nodes]
     nx.draw_networkx_nodes(G, pos, node_color=node_colors)
     # Draw solid edges
-    nx.draw_networkx_edges(G, pos, edgelist=normal_edges, style='solid', edge_color='black')
+    nx.draw_networkx_edges(G, pos, edgelist=normal_edges, style="solid", edge_color="black")
 
     # Draw dashed edges
-    nx.draw_networkx_edges(G, pos, edgelist=dashed_edges, style='dashed', edge_color='grey',width=0.5)
+    nx.draw_networkx_edges(G, pos, edgelist=dashed_edges, style="dashed", edge_color="grey", width=0.5)
     nx.draw_networkx_labels(G, pos)
     plt.title("Network Topology")
     plt.show()
+
 
 def get_node_color(node_type):
     """
@@ -120,13 +106,9 @@ def get_node_color(node_type):
     :param node_type: The type of the node (e.g., UPF, EdgeServer, BaseStation, Drone).
     :return: A color string.
     """
-    colors = {
-        "UPF": "red",
-        "EdgeServer": "blue",
-        "BaseStation": "green",
-        "Drone": "orange"
-    }
+    colors = {"UPF": "red", "EdgeServer": "blue", "BaseStation": "green", "Drone": "orange"}
     return colors.get(node_type, "gray")
+
 
 if __name__ == "__main__":
     # Example usage
@@ -145,4 +127,3 @@ if __name__ == "__main__":
         print(f" - {upfs[i].name} (ID: {upfs[i].function_id})")
     # Example usage
     visualize_topology(edge_sites, base_stations, drones, upfs)
-    
