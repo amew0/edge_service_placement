@@ -40,8 +40,8 @@ class TrainingMetricsCallback(BaseCallback):
         
         # Save raw data
         metrics = {
-            'episode_rewards': self.episode_rewards,
-            'episode_lengths': self.episode_lengths,
+            'episode_rewards': [float(r) for r in self.episode_rewards],
+            'episode_lengths': [int(l) for l in self.episode_lengths],
         }
         
         with open(os.path.join(output_dir, 'training_metrics.json'), 'w') as f:

@@ -1,6 +1,6 @@
 import numpy as np
 import edge_sim_py as es # type: ignore
-from gym import spaces
+from gymnasium import spaces
 from edge_components import edge_components as ec # type: ignore
 import networkx as nx
 import matplotlib.pyplot as plt
